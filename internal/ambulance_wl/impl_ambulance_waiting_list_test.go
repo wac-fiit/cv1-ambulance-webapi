@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"github.com/wac-fiit/cv1-ambulance-webapi/internal/db_service"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 type AmbulanceWlSuite struct {
@@ -97,7 +99,10 @@ func (suite *AmbulanceWlSuite) Test_UpdateWl_DbServiceUpdateCalled() {
 	}
 	ctx.Request = httptest.NewRequest("POST", "/ambulance/test-ambulance/waitinglist/test-entry", strings.NewReader(json))
 
-	sut := implAmbulanceWaitingListAPI{}
+	sut := implAmbulanceWaitingListAPI{
+		tracer: noop.NewTracerProvider().Tracer("ambulance-wl"),
+		logger: zerolog.Nop(),
+	}
 	// ACT
 	sut.UpdateWaitingListEntry(ctx)
 	// ASSERT

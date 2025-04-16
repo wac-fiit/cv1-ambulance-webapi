@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"strings"
 
@@ -10,13 +9,47 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/wac-fiit/cv1-ambulance-webapi/api"
 	"github.com/wac-fiit/cv1-ambulance-webapi/internal/ambulance_wl"
 	"github.com/wac-fiit/cv1-ambulance-webapi/internal/db_service"
+	"go.opentelemetry.io/contrib/exporters/autoexport"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func main() {
-	log.Printf("Server started")
+	log.Logger = zerolog.New(os.Stdout).With().
+		Str("service", "ambulance-wl-list").
+		Timestamp().
+		Caller().
+		Logger()
+
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	defaultLevel := zerolog.InfoLevel
+	level, err := zerolog.ParseLevel(strings.ToLower(logLevelStr))
+	if err != nil {
+		log.Warn().Str("LOG_LEVEL", logLevelStr).Msgf("Invalid log level, using default: %s", defaultLevel)
+		level = defaultLevel
+	}
+	// Set the global log level
+	zerolog.SetGlobalLevel(level)
+
+	// initialize trace exporter
+	ctx, cancel := context.WithCancel(context.Background())
+	traceExporter, err := autoexport.NewSpanExporter(ctx)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize trace exporter")
+	}
+
+	traceProvider := tracesdk.NewTracerProvider(tracesdk.WithBatcher(traceExporter))
+	otel.SetTracerProvider(traceProvider)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	log.Info().Msg("Server started")
 	port := os.Getenv("AMBULANCE_API_PORT")
 	if port == "" {
 		port = "8080"
@@ -27,6 +60,7 @@ func main() {
 	}
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.Use(otelgin.Middleware("my-server"))
 	corsMiddleware := cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "PUT", "POST", "DELETE", "PATCH"},
@@ -53,4 +87,6 @@ func main() {
 	ambulance_wl.NewRouterWithGinEngine(engine, *handleFunctions)
 	engine.GET("/openapi", api.HandleOpenApi)
 	engine.Run(":" + port)
+
+	cancel()
 }
