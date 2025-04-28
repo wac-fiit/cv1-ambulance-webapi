@@ -101,6 +101,10 @@ spec:
         ports:
         - name: api-ui
           containerPort: 8081
+        envFrom:
+          - configMapRef:
+              name: otel-params
+              optional: true
         env:
           - name: PORT
             value: "8081"
