@@ -61,6 +61,10 @@ spec:
         ports:
         - name: webapi-port
           containerPort: 8080
+        envFrom:
+          - configMapRef:
+              name: otel-params
+              optional: true
         env:
           - name: AMBULANCE_API_ENVIRONMENT
             value: production
@@ -101,10 +105,6 @@ spec:
         ports:
         - name: api-ui
           containerPort: 8081
-        envFrom:
-          - configMapRef:
-              name: otel-params
-              optional: true
         env:
           - name: PORT
             value: "8081"
