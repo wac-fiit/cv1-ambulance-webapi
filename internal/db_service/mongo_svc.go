@@ -13,6 +13,11 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type DbService[DocType interface{}] interface {
@@ -40,6 +45,7 @@ type mongoSvc[DocType interface{}] struct {
 	MongoServiceConfig
 	client     atomic.Pointer[mongo.Client]
 	clientLock sync.Mutex
+	tracer     trace.Tracer
 }
 
 func NewMongoService[DocType interface{}](config MongoServiceConfig) DbService[DocType] {
@@ -51,6 +57,7 @@ func NewMongoService[DocType interface{}](config MongoServiceConfig) DbService[D
 	}
 
 	svc := &mongoSvc[DocType]{}
+	svc.tracer = otel.Tracer("MongoService")
 	svc.MongoServiceConfig = config
 
 	if svc.ServerHost == "" {
@@ -105,6 +112,8 @@ func NewMongoService[DocType interface{}](config MongoServiceConfig) DbService[D
 }
 
 func (m *mongoSvc[DocType]) connect(ctx context.Context) (*mongo.Client, error) {
+	ctx, span := m.tracer.Start(ctx, "connect")
+	defer span.End()
 	// optimistic check
 	client := m.client.Load()
 	if client != nil {
@@ -123,16 +132,22 @@ func (m *mongoSvc[DocType]) connect(ctx context.Context) (*mongo.Client, error) 
 	defer contextCancel()
 
 	var uri = fmt.Sprintf("mongodb://%v:%v", m.ServerHost, m.ServerPort)
+	span.SetAttributes(attribute.String("mongodb.uri", uri))
 	log.Printf("Using URI: " + uri)
 
 	if len(m.UserName) != 0 {
 		uri = fmt.Sprintf("mongodb://%v:%v@%v:%v", m.UserName, m.Password, m.ServerHost, m.ServerPort)
 	}
 
-	if client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri).SetConnectTimeout(10*time.Second)); err != nil {
+	opts := options.Client()
+	opts.Monitor = otelmongo.NewMonitor()
+	opts.ApplyURI(uri).SetConnectTimeout(10 * time.Second)
+	if client, err := mongo.Connect(ctx, opts); err != nil {
+		span.SetStatus(codes.Error, "MongoDB connection error")
 		return nil, err
 	} else {
 		m.client.Store(client)
+		span.SetStatus(codes.Ok, "MongoDB connection established")
 		return client, nil
 	}
 }
@@ -156,6 +171,16 @@ func (m *mongoSvc[DocType]) Disconnect(ctx context.Context) error {
 }
 
 func (m *mongoSvc[DocType]) CreateDocument(ctx context.Context, id string, document *DocType) error {
+	ctx, span := m.tracer.Start(
+		ctx,
+		"CreateDocument",
+		trace.WithAttributes(
+			attribute.String("mongodb.collection", m.Collection),
+			attribute.String("entry.id", id),
+		),
+	)
+	defer span.End()
+
 	ctx, contextCancel := context.WithTimeout(ctx, m.Timeout)
 	defer contextCancel()
 	client, err := m.connect(ctx)
@@ -171,14 +196,26 @@ func (m *mongoSvc[DocType]) CreateDocument(ctx context.Context, id string, docum
 	case mongo.ErrNoDocuments:
 		// do nothing, this is expected
 	default: // other errors - return them
+		span.SetStatus(codes.Error, result.Err().Error())
 		return result.Err()
 	}
 
 	_, err = collection.InsertOne(ctx, document)
+	span.SetStatus(codes.Ok, "Document inserted")
 	return err
 }
 
 func (m *mongoSvc[DocType]) FindDocument(ctx context.Context, id string) (*DocType, error) {
+	ctx, span := m.tracer.Start(
+		ctx,
+		"CreateDocument",
+		trace.WithAttributes(
+			attribute.String("mongodb.collection", m.Collection),
+			attribute.String("entry.id", id),
+		),
+	)
+	defer span.End()
+
 	ctx, contextCancel := context.WithTimeout(ctx, m.Timeout)
 	defer contextCancel()
 	client, err := m.connect(ctx)
@@ -193,16 +230,28 @@ func (m *mongoSvc[DocType]) FindDocument(ctx context.Context, id string) (*DocTy
 	case mongo.ErrNoDocuments:
 		return nil, ErrNotFound
 	default: // other errors - return them
+		span.SetStatus(codes.Error, "Document not found")
 		return nil, result.Err()
 	}
 	var document *DocType
 	if err := result.Decode(&document); err != nil {
 		return nil, err
 	}
+	span.SetStatus(codes.Ok, "Document found")
 	return document, nil
 }
 
 func (m *mongoSvc[DocType]) UpdateDocument(ctx context.Context, id string, document *DocType) error {
+	ctx, span := m.tracer.Start(
+		ctx,
+		"UpdateDocument",
+		trace.WithAttributes(
+			attribute.String("mongodb.collection", m.Collection),
+			attribute.String("entry.id", id),
+		),
+	)
+	defer span.End()
+
 	ctx, contextCancel := context.WithTimeout(ctx, m.Timeout)
 	defer contextCancel()
 	client, err := m.connect(ctx)
@@ -215,8 +264,10 @@ func (m *mongoSvc[DocType]) UpdateDocument(ctx context.Context, id string, docum
 	switch result.Err() {
 	case nil:
 	case mongo.ErrNoDocuments:
+		span.SetStatus(codes.Error, "Document not found")
 		return ErrNotFound
 	default: // other errors - return them
+		span.SetStatus(codes.Error, result.Err().Error())
 		return result.Err()
 	}
 	_, err = collection.ReplaceOne(ctx, bson.D{{Key: "id", Value: id}}, document)
