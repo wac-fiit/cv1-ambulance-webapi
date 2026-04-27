@@ -41,6 +41,13 @@ RUN CGO_ENABLED=0 GOOS=linux \
 ############################################
 FROM scratch
 
+ENV OTEL_TRACES_EXPORTER=none
+ENV OTEL_METRICS_EXPORTER=none
+ENV OTEL_LOGS_EXPORTER=none
+ENV LOG_LEVEL=info
+
+ENV OTEL_SERVICE_NAME=ambulance-wl-api
+
 # see https://github.com/opencontainers/image-spec/blob/main/annotations.md for details
 LABEL org.opencontainers.image.authors="Peter Micuch"
 LABEL org.opencontainers.image.title="Ambulance Waiting List WebAPI Service"

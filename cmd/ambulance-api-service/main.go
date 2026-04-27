@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"strings"
 
@@ -10,13 +9,32 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/wac-fiit/ambulance-webapi-cv1/api"
 	"github.com/wac-fiit/ambulance-webapi-cv1/internal/ambulance_wl"
 	"github.com/wac-fiit/ambulance-webapi-cv1/internal/db_service"
 )
 
 func main() {
-	log.Printf("Server started")
+	log.Logger = zerolog.New(os.Stdout).With().
+		Str("service", "ambulance-wl-list").
+		Timestamp().
+		Caller().
+		Logger()
+
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	defaultLevel := zerolog.InfoLevel
+	level, err := zerolog.ParseLevel(strings.ToLower(logLevelStr))
+	if err != nil {
+		log.Warn().Str("LOG_LEVEL", logLevelStr).Msgf("Invalid log level, using default: %s", defaultLevel)
+		level = defaultLevel
+	}
+	// Set the global log level
+	zerolog.SetGlobalLevel(level)
+
+	log.Info().Msg("Server started")
+
 	port := os.Getenv("AMBULANCE_API_PORT")
 	if port == "" {
 		port = "8080"
