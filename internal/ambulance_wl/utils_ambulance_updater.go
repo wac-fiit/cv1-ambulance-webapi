@@ -49,7 +49,7 @@ func updateAmbulanceFunc(ctx *gin.Context, updater ambulanceUpdater) {
 
 	ambulanceId := ctx.Param("ambulanceId")
 
-	ambulance, err := db.FindDocument(ctx, ambulanceId)
+	ambulance, err := db.FindDocument(ctx.Request.Context(), ambulanceId)
 
 	switch err {
 	case nil:
@@ -91,7 +91,7 @@ func updateAmbulanceFunc(ctx *gin.Context, updater ambulanceUpdater) {
 	updatedAmbulance, responseObject, status := updater(ctx, ambulance)
 
 	if updatedAmbulance != nil {
-		err = db.UpdateDocument(ctx, ambulanceId, updatedAmbulance)
+		err = db.UpdateDocument(ctx.Request.Context(), ambulanceId, updatedAmbulance)
 	} else {
 		err = nil // redundant but for clarity
 	}

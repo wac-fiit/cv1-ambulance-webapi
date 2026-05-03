@@ -270,10 +270,21 @@ func (m *mongoSvc[DocType]) UpdateDocument(ctx context.Context, id string, docum
 		return result.Err()
 	}
 	_, err = collection.ReplaceOne(ctx, bson.D{{Key: "id", Value: id}}, document)
+	span.SetStatus(codes.Ok, "Document updated")
 	return err
 }
 
 func (m *mongoSvc[DocType]) DeleteDocument(ctx context.Context, id string) error {
+	ctx, span := m.tracer.Start(
+		ctx,
+		"DeleteDocument",
+		trace.WithAttributes(
+			attribute.String("mongodb.collection", m.Collection),
+			attribute.String("entry.id", id),
+		),
+	)
+	defer span.End()
+
 	ctx, contextCancel := context.WithTimeout(ctx, m.Timeout)
 	defer contextCancel()
 	client, err := m.connect(ctx)
@@ -286,10 +297,13 @@ func (m *mongoSvc[DocType]) DeleteDocument(ctx context.Context, id string) error
 	switch result.Err() {
 	case nil:
 	case mongo.ErrNoDocuments:
+		span.SetStatus(codes.Error, "Document not found")
 		return ErrNotFound
 	default: // other errors - return them
+		span.SetStatus(codes.Error, result.Err().Error())
 		return result.Err()
 	}
 	_, err = collection.DeleteOne(ctx, bson.D{{Key: "id", Value: id}})
+	span.SetStatus(codes.Ok, "Document deleted")
 	return err
 }

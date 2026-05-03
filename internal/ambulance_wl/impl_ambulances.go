@@ -57,7 +57,7 @@ func (o implAmbulancesAPI) CreateAmbulance(c *gin.Context) {
 		ambulance.Id = uuid.New().String()
 	}
 
-	err = db.CreateDocument(c, ambulance.Id, &ambulance)
+	err = db.CreateDocument(c.Request.Context(), ambulance.Id, &ambulance)
 
 	switch err {
 	case nil:
@@ -112,7 +112,7 @@ func (o implAmbulancesAPI) DeleteAmbulance(c *gin.Context) {
 	}
 
 	ambulanceId := c.Param("ambulanceId")
-	err := db.DeleteDocument(c, ambulanceId)
+	err := db.DeleteDocument(c.Request.Context(), ambulanceId)
 
 	switch err {
 	case nil:
